@@ -44,6 +44,7 @@
 #include "cutils/properties.h"
 #include "hardware_legacy/power.h"
 #include "VolumeManager.h"
+#include "ecryptfs.h"
 
 #define DM_CRYPT_BUF_SIZE 4096
 #define DATA_MNT_POINT "/data"
@@ -907,14 +908,51 @@ int cryptfs_crypto_complete(void)
   return do_crypto_complete("/data");
 }
 
+// Inserts eCryptfs master mount key into keyring
+int cryptfs_generate_ecryptfs_key(char *passwd)
+{
+	char auth_tok_sig_hex[ECRYPTFS_SIG_SIZE_HEX + 1];
+	char salt[ECRYPTFS_SALT_SIZE];
+	int rc = 0;
+	char ecryptfs_options[ECRYPTFS_SIG_SIZE_HEX + 64];
+
+	from_hex(salt, ECRYPTFS_DEFAULT_SALT_HEX, ECRYPTFS_SALT_SIZE);
+	
+	if ((rc = ecryptfs_add_passphrase_key_to_keyring(auth_tok_sig_hex,
+                                                         passwd,
+                                                         salt)) < 0) {
+		SLOGE("%s [%d]\n", ECRYPTFS_ERROR_INSERT_KEY, rc);
+		SLOGE("%s\n", ECRYPTFS_INFO_CHECK_LOG);
+		rc = 1;
+    	goto out;
+    } else
+         rc = 0;
+
+	auth_tok_sig_hex[ECRYPTFS_SIG_SIZE_HEX] = '\0';
+	snprintf(ecryptfs_options, sizeof(ecryptfs_options), 
+		 "ecryptfs_sig=%s,ecryptfs_cipher=aes,ecryptfs_key_bytes=16",
+		 auth_tok_sig_hex); 
+	property_set("vold.ecryptfs_options", ecryptfs_options);
+ 	SLOGI("Set eCryptfs mount options: %s", ecryptfs_options);
+
+out:
+	return rc;
+}
+
 int cryptfs_check_passwd(char *passwd)
 {
     int rc = -1;
 
     rc = test_mount_encrypted_fs(passwd, DATA_MNT_POINT, "userdata");
+	if (rc) 
+		goto out;
 
+	rc = cryptfs_generate_ecryptfs_key(passwd);
+
+out:
     return rc;
 }
+
 
 int cryptfs_verify_passwd(char *passwd)
 {

@@ -15,19 +15,22 @@ common_src_files := \
 	Devmapper.cpp \
 	ResponseCode.cpp \
 	Xwarp.cpp \
-	cryptfs.c
+	cryptfs.c \
+	ecryptfs.c 
 
 common_c_includes := \
 	$(KERNEL_HEADERS) \
 	system/extras/ext4_utils \
-	external/openssl/include
+	external/openssl/include \
+	external/libkeyutils
 
 common_shared_libraries := \
 	libsysutils \
 	libcutils \
 	libdiskconfig \
 	libhardware_legacy \
-	libcrypto
+	libcrypto \
+	libkeyutils
 
 include $(CLEAR_VARS)
 
