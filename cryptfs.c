@@ -1448,6 +1448,41 @@ error_shutting_down:
     return -1;
 }
 
+int cryptfs_wipe_keys(char *method)
+{
+    uint32_t channel_type = ECRYPTFS_MESSAGING_TYPE_MISCDEV;
+    int rc = 0;
+    int exrc = 0;
+    struct ecryptfs_messaging_ctx mctx;
+    pthread_mutex_t mctx_mux;
+
+    pthread_mutex_init(&mctx_mux, NULL);
+    pthread_mutex_lock(&mctx_mux);
+    rc = ecryptfs_init_messaging(&mctx, channel_type);
+    if (rc) {
+        SLOGE("%s: Failed to initialize messaging; rc = "
+            "[%d]\n", __FUNCTION__, rc);
+        pthread_mutex_unlock(&mctx_mux);
+        goto out;
+    }
+    rc = ecryptfs_send_message(&mctx, NULL, ECRYPTFS_MSG_CLEARMASTER_BLACK, 0, 0);
+    if (rc) {
+        SLOGE("%s: Error attempting to send message to "
+            "eCryptfs kernel module via transport of type "
+            "[0x%.8x]; rc = [%d]\n", __FUNCTION__, mctx.type, rc);
+        pthread_mutex_unlock(&mctx_mux);
+        goto out;
+    }
+
+out:
+    exrc = ecryptfs_messaging_exit(&mctx);
+    if (exrc)
+        SLOGE("%s: Error attempting to shut down messaging; "
+            "rc = [%d]\n", __FUNCTION__, exrc);
+
+    return rc;
+}
+
 int cryptfs_changepw(char *newpw)
 {
     struct crypt_mnt_ftr crypt_ftr;
