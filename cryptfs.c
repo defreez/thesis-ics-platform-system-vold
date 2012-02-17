@@ -45,9 +45,11 @@
 #include "hardware_legacy/power.h"
 #include "VolumeManager.h"
 #include "ecryptfs.h"
+#include <keyutils.h>
 
 #define DM_CRYPT_BUF_SIZE 4096
 #define DATA_MNT_POINT "/data"
+#define DATA_ECRYPTFS "/data/data"
 
 #define HASH_COUNT 2000
 #define KEY_LEN_BYTES 16
@@ -934,7 +936,7 @@ int cryptfs_generate_ecryptfs_key(char *passwd)
 		 auth_tok_sig_hex); 
 	property_set("vold.ecryptfs_options", ecryptfs_options);
  	SLOGI("Set eCryptfs mount options: %s", ecryptfs_options);
-
+	cryptfs_regmaster();
 out:
 	return rc;
 }
@@ -947,7 +949,7 @@ int cryptfs_check_passwd(char *passwd)
 	if (rc) 
 		goto out;
 
-	rc = cryptfs_generate_ecryptfs_key(passwd);
+    rc = cryptfs_generate_ecryptfs_key(passwd);
 
 out:
     return rc;
@@ -992,6 +994,10 @@ int cryptfs_verify_passwd(char *passwd)
         SLOGE("Error getting crypt footer and key\n");
         return -1;
     }
+    if (cryptfs_generate_ecryptfs_key(passwd)) {
+        SLOGE("Error inserting key into keyring on validation");
+        return -1;
+    }
 
     if (crypt_ftr.flags & CRYPT_MNT_KEY_UNENCRYPTED) {
         /* If the device has no password, then just say the password is valid */
@@ -1007,6 +1013,7 @@ int cryptfs_verify_passwd(char *passwd)
             rc = 1;
         }
     }
+
 
     return rc;
 }
@@ -1448,39 +1455,127 @@ error_shutting_down:
     return -1;
 }
 
-int cryptfs_wipe_keys(char *method)
+int cryptfs_send_ecryptfs_msg(struct ecryptfs_message *msg, int type)
 {
     uint32_t channel_type = ECRYPTFS_MESSAGING_TYPE_MISCDEV;
-    int rc = 0;
-    int exrc = 0;
     struct ecryptfs_messaging_ctx mctx;
     pthread_mutex_t mctx_mux;
+    int rc = 0;
+    int exrc = 0;
 
     pthread_mutex_init(&mctx_mux, NULL);
     pthread_mutex_lock(&mctx_mux);
     rc = ecryptfs_init_messaging(&mctx, channel_type);
     if (rc) {
         SLOGE("%s: Failed to initialize messaging; rc = "
-            "[%d]\n", __FUNCTION__, rc);
+              "[%d]\n", __FUNCTION__, rc);
         pthread_mutex_unlock(&mctx_mux);
         goto out;
     }
-    rc = ecryptfs_send_message(&mctx, NULL, ECRYPTFS_MSG_CLEARMASTER_BLACK, 0, 0);
+    rc = ecryptfs_send_message(&mctx, msg, type, 0, 0);
     if (rc) {
         SLOGE("%s: Error attempting to send message to "
-            "eCryptfs kernel module via transport of type "
-            "[0x%.8x]; rc = [%d]\n", __FUNCTION__, mctx.type, rc);
+              "eCryptfs kernel module via transport of type "
+              "[0x%.8x]; rc = [%d]\n", __FUNCTION__, mctx.type, rc);
         pthread_mutex_unlock(&mctx_mux);
         goto out;
     }
-
 out:
     exrc = ecryptfs_messaging_exit(&mctx);
     if (exrc)
         SLOGE("%s: Error attempting to shut down messaging; "
-            "rc = [%d]\n", __FUNCTION__, exrc);
+              "rc = [%d]\n", __FUNCTION__, exrc);
 
     return rc;
+}
+
+int cryptfs_unlink_master()
+{
+	int rc = 0;
+	char ecryptfs_options[ECRYPTFS_SIG_SIZE_HEX + 64];
+	char *sig, *saveptr;
+
+	// Get key signature from mount options
+	property_get("vold.ecryptfs_options", ecryptfs_options, "");
+	strtok_r(ecryptfs_options, "=", &saveptr);
+	sig = strtok_r(NULL, ",", &saveptr);
+	strtok_r(sig, ",", &saveptr);
+
+        rc = keyctl_search(KEY_SPEC_USER_KEYRING, "user", sig, 0);
+        if (rc < 0) {
+                SLOGW("Key signature not linked\n");
+                return -1;
+        }
+        SLOGD("attempting to unlink key serial %d\n", rc);
+        rc = keyctl_clear(KEY_SPEC_USER_KEYRING);
+        if (rc < 0) {
+                SLOGE("Unable to unlink; rc = [%d]\n", rc);
+                return -1;
+        }
+
+	return 0;
+}
+
+void cryptfs_regmaster()
+{
+	char ecryptfs_options[ECRYPTFS_SIG_SIZE_HEX + 64];
+	char *sig, *saveptr;
+	struct ecryptfs_message *msg;
+        char path[] = DATA_ECRYPTFS;
+        char *data;
+        int data_len;
+        int rc = 0;
+
+	// Get key signature from mount options
+	property_get("vold.ecryptfs_options", ecryptfs_options, "");
+	strtok_r(ecryptfs_options, "=", &saveptr);
+	sig = strtok_r(NULL, ",", &saveptr);
+	strtok_r(sig, ",", &saveptr);
+
+        data_len = sizeof(path) + ECRYPTFS_SIG_SIZE_HEX + 1;
+        msg = malloc(sizeof(struct ecryptfs_message) + data_len);
+        memcpy(msg->data, sig, ECRYPTFS_SIG_SIZE_HEX + 1);
+        memcpy(msg->data + ECRYPTFS_SIG_SIZE_HEX + 1, path, sizeof(path));
+        msg->data_len = data_len;
+
+        cryptfs_send_ecryptfs_msg(msg, ECRYPTFS_MSG_REGMASTER);
+}
+
+void clearboundary(uid_t uid)
+{
+        struct ecryptfs_message *msg;
+        char path[] = DATA_ECRYPTFS;
+        char *data;
+        int data_len;
+        int rc = 0;
+
+        data_len = sizeof(path) + sizeof(uid);
+        msg = malloc(sizeof(struct ecryptfs_message) + data_len);
+        memcpy(msg->data, &uid, sizeof(uid));
+        memcpy(msg->data + sizeof(uid), path, sizeof(path));
+        msg->data_len = data_len;
+
+        cryptfs_send_ecryptfs_msg(msg, ECRYPTFS_MSG_CLEARBOUNDARY);
+}
+
+int cryptfs_clearmaster()
+{
+	struct ecryptfs_message *msg;
+        char path[] = DATA_ECRYPTFS;
+        char *data;
+        int data_len;
+        int rc = 0;
+
+	rc = cryptfs_unlink_master();
+
+        data_len = sizeof(path);
+        msg = malloc(sizeof(struct ecryptfs_message) + data_len);
+        memcpy(msg->data, path, sizeof(path));
+        msg->data_len = data_len;
+
+        rc = cryptfs_send_ecryptfs_msg(msg, ECRYPTFS_MSG_CLEARMASTER);
+
+	return rc;
 }
 
 int cryptfs_changepw(char *newpw)

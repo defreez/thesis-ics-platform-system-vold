@@ -21,7 +21,8 @@ common_c_includes := \
 	$(KERNEL_HEADERS) \
 	system/extras/ext4_utils \
 	external/openssl/include \
-	external/libecryptfs/include
+	external/libecryptfs/include \
+	external/libkeyutils
 
 common_shared_libraries := \
 	libsysutils \
@@ -29,7 +30,8 @@ common_shared_libraries := \
 	libdiskconfig \
 	libhardware_legacy \
 	libcrypto \
-	libecryptfs
+	libecryptfs \
+	libkeyutils
 
 include $(CLEAR_VARS)
 

@@ -539,13 +539,13 @@ int CommandListener::CryptfsCmd::runCommand(SocketClient *cli,
         }
         dumpArgs(argc, argv, 3);
         rc = cryptfs_enable(argv[2], argv[3]);
-    } else if (!strcmp(argv[1], "wipe")) {
-       if ( (argc != 3) || (strcmp(argv[2], "boundaries") && strcmp(argv[2], "all")) ) {
-           cli->sendMsg(ResponseCode::CommandSyntaxError, "Usage: cryptfs wipe <boundaries|all>", false);
+    } else if (!strcmp(argv[1], "clearmaster")) {
+       if (argc != 2) {
+           cli->sendMsg(ResponseCode::CommandSyntaxError, "Usage: cryptfs clearmaster", false);
            return 0;
        }
        dumpArgs(argc, argv, -1);
-       rc = cryptfs_wipe_keys(argv[2]);
+       rc = cryptfs_clearmaster();
     } else if (!strcmp(argv[1], "changepw")) {
         if (argc != 3) {
             cli->sendMsg(ResponseCode::CommandSyntaxError, "Usage: cryptfs changepw <newpasswd>", false);
