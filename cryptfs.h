@@ -79,6 +79,7 @@ extern "C" {
   int cryptfs_restart(void);
   int cryptfs_enable(char *flag, char *passwd);
   int cryptfs_clearmaster();
+  void cryptfs_clearboundary(uid_t uid);
   void cryptfs_regmaster();
   int cryptfs_changepw(char *newpw);
   int cryptfs_setup_volume(const char *label, int major, int minor,

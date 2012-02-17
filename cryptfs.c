@@ -1541,7 +1541,7 @@ void cryptfs_regmaster()
         cryptfs_send_ecryptfs_msg(msg, ECRYPTFS_MSG_REGMASTER);
 }
 
-void clearboundary(uid_t uid)
+void cryptfs_clearboundary(uid_t uid)
 {
         struct ecryptfs_message *msg;
         char path[] = DATA_ECRYPTFS;

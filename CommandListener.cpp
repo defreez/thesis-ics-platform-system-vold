@@ -546,6 +546,13 @@ int CommandListener::CryptfsCmd::runCommand(SocketClient *cli,
        }
        dumpArgs(argc, argv, -1);
        rc = cryptfs_clearmaster();
+    } else if (!strcmp(argv[1], "clearboundary")) {
+       if (argc != 3) {
+           cli->sendMsg(ResponseCode::CommandSyntaxError, "Usage: cryptfs clearboundary <uid>", false);
+           return 0;
+       }
+       dumpArgs(argc, argv, -1);
+       cryptfs_clearboundary(atoi(argv[2]));
     } else if (!strcmp(argv[1], "changepw")) {
         if (argc != 3) {
             cli->sendMsg(ResponseCode::CommandSyntaxError, "Usage: cryptfs changepw <newpasswd>", false);
